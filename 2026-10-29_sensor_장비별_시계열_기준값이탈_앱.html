@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>센서 CSV 시계열 분석 · 장비별 기준값 이탈</title>
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#f4f6f9; --surface:#ffffff; --surface2:#f0f3f8; --text:#1b2231; --muted:#667085;
+  --border:#dde2ea; --grid:rgba(20,30,50,.09); --accent:#2563eb; --danger:#d7191c;
+  --ok:#1f9d55; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#12151b; --surface:#1b2029; --surface2:#232a36; --text:#e8ecf3; --muted:#9aa5b8;
+    --border:#313a4a; --grid:rgba(255,255,255,.10); --accent:#6ea0ff; --danger:#ff5a5f;
+    --ok:#46c779; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#12151b; --surface:#1b2029; --surface2:#232a36; --text:#e8ecf3; --muted:#9aa5b8;
+  --border:#313a4a; --grid:rgba(255,255,255,.10); --accent:#6ea0ff; --danger:#ff5a5f;
+  --ok:#46c779; color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:21px;margin:0 0 4px}
+h2{font-size:16px;margin:0 0 10px}
+h3{font-size:15px;margin:0}
+.sub{color:var(--muted);margin:0 0 16px}
+section.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+select,input[type=number],button{font:inherit;color:var(--text);background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;padding:6px 10px;min-height:34px}
+input[type=number]{width:110px}
+button{cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible,.drop:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;
+  border:2px dashed var(--border);border-radius:12px;padding:26px 16px;cursor:pointer;background:var(--surface2);transition:.15s}
+.drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface2))}
+.drop input{position:absolute;opacity:0;width:1px;height:1px}
+.drop b{font-size:15px}
+.drop span{color:var(--muted);font-size:12.5px}
+#msg{margin-top:10px;font-size:13px;min-height:20px}
+#msg.err{color:var(--danger)} #msg.ok{color:var(--ok)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi{background:var(--surface2);border-radius:10px;padding:10px 12px}
+.kpi small{display:block;color:var(--muted);font-size:11.5px}
+.kpi strong{font-size:15px;word-break:break-all}
+.kpi.warn strong{color:var(--danger)}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border);border-radius:999px;
+  background:var(--surface2);font-size:12.5px;cursor:pointer;user-select:none}
+.chip input{margin:0}
+.chip.off{opacity:.45}
+.chip .ln{display:inline-block;width:22px;height:0;border-top:3px solid currentColor}
+.chip .x{color:var(--danger);font-weight:700}
+.chip.static{cursor:default}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--col,#888);flex:none}
+
+.tscroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+th{color:var(--muted);font-weight:600;font-size:12px}
+th:first-child,td:first-child{text-align:left}
+td input[type=number]{width:104px;padding:4px 8px;min-height:30px}
+.badge{font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+.badge.manual{color:var(--accent);border-color:var(--accent)}
+td.name{display:flex;align-items:center;gap:8px}
+
+#charts{display:flex;flex-direction:column;gap:16px}
+.chartcard{border:1px solid var(--border);border-left:5px solid var(--col);border-radius:12px;padding:12px 14px 10px;
+  background:var(--surface);background:color-mix(in srgb,var(--col) 5%,var(--surface))}
+.chartcard header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;align-items:baseline;margin-bottom:6px}
+.chartcard h3{display:flex;align-items:center;gap:8px;color:var(--col)}
+.chartcard .meta{font-size:12px;color:var(--muted)}
+.chartcard .meta b{color:var(--danger)}
+.cwrap{position:relative;height:300px}
+.hint{font-size:12px;color:var(--muted);margin:0 0 10px}
+.empty{color:var(--muted);padding:12px 0}
+.legendbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:10px}
+details{margin-top:10px;color:var(--muted);font-size:12.5px}
+details summary{cursor:pointer}
+details ul{margin:6px 0 0 18px;padding:0}
+.pill-low{color:#2f80ed} .pill-high{color:var(--danger)}
+[hidden]{display:none!important}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <h1>센서 CSV 시계열 분석 · 장비별 기준값 이탈</h1>
+  <p class="sub">CSV 업로드 → 컬럼별 그래프(equip_id별 꺾은선) → 기준값 이탈점 표시. 파일은 브라우저 안에서만 처리되며 외부로 전송되지 않음.</p>
+
+  <section class="panel" id="uploadPanel">
+    <label class="drop" id="drop" tabindex="-1">
+      <input type="file" id="file" accept=".csv,.tsv,.txt,text/csv">
+      <b>CSV 파일을 끌어다 놓거나 클릭하여 선택</b>
+      <span>필요 컬럼: 시간 · equip_id · 숫자형 센서값(1개 이상) / 인코딩 UTF-8·CP949 자동 판별 / 구분자 쉼표·탭·세미콜론 자동 판별</span>
+    </label>
+    <div class="row" style="margin-top:10px">
+      <button id="btnSample" type="button">샘플 데이터로 체험</button>
+    </div>
+    <div id="msg" role="status" aria-live="polite"></div>
+  </section>
+
+  <div id="app" hidden>
+    <section class="panel">
+      <h2>1. 데이터 개요</h2>
+      <div class="cards" id="overview"></div>
+    </section>
+
+    <section class="panel">
+      <h2>2. 분석 설정</h2>
+      <div class="row">
+        <label class="f">시간 컬럼<select id="selTime"></select></label>
+        <label class="f">장비 컬럼 (equip_id)<select id="selEquip"></select></label>
+        <label class="f">자동 기준값 범위 (평균 ± kσ)<input type="number" id="inK" min="0.5" step="0.5" value="3"></label>
+        <button id="btnAuto" type="button">전체 기준값 자동으로 재설정</button>
+      </div>
+      <div style="margin-top:12px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">표시할 컬럼 (색상은 컬럼 식별용)</div>
+        <div class="chips" id="colChips"></div>
+        <div id="skipped" class="hint" style="margin-top:8px"></div>
+      </div>
+      <h2 style="margin-top:16px">기준값(관리 한계) — 하한 미만 또는 상한 초과를 이탈로 표시</h2>
+      <p class="hint">값을 직접 입력하면 수동 기준값으로 전환됨. 비워 두면 해당 방향은 제한 없음. 기본값은 전체 장비 데이터의 평균 ± kσ이며 공정 규격과 다를 수 있으므로 실제 관리 한계를 입력할 것.</p>
+      <div class="tscroll"><table id="limTable"></table></div>
+    </section>
+
+    <section class="panel">
+      <h2>3. 컬럼별 시계열 (equip_id별 꺾은선)</h2>
+      <div class="legendbar">
+        <div class="chips" id="legend"></div>
+        <button id="btnReset" type="button">확대 초기화</button>
+      </div>
+      <p class="hint">드래그: 구간 확대(모든 그래프 동기) · Shift+드래그: 이동 · Ctrl+휠: 확대/축소 · 범례 클릭: 장비 표시/숨김 · 빨간 ✕: 기준값 이탈 · 빨간 점선/음영: 이탈 영역</p>
+      <div id="charts"></div>
+    </section>
+
+    <section class="panel">
+      <h2>4. 컬럼별 통계 (전체 장비)</h2>
+      <div class="tscroll"><table id="statTable"></table></div>
+    </section>
+
+    <section class="panel">
+      <h2>5. 기준값 이탈 현황 (컬럼 × 장비, 건수 및 이탈률)</h2>
+      <div class="tscroll"><table id="matrix"></table></div>
+    </section>
+
+    <section class="panel">
+      <h2>6. 이탈 목록</h2>
+      <div class="row" style="margin-bottom:10px">
+        <label class="f">컬럼<select id="fCol"></select></label>
+        <label class="f">장비<select id="fEquip"></select></label>
+      </div>
+      <div class="tscroll"><table id="vlist"></table></div>
+      <div class="row" style="margin-top:10px;align-items:center">
+        <button id="btnMore" type="button">더 보기</button>
+        <span id="vinfo" class="hint" style="margin:0"></span>
+      </div>
+      <details>
+        <summary>사용 방법 및 처리 규칙</summary>
+        <ul>
+          <li>빈칸·NA·NaN·null·-·ERR 등은 결측으로 처리하며 그래프에서 해당 점은 제외하고 인접 점을 연결함</li>
+          <li>숫자로 변환되지 않는 컬럼(문자열)은 분석에서 제외함. 숫자 컬럼에 섞인 문자값은 결측 처리함</li>
+          <li>센서 오류 대체값(예: -999, 9999)은 결측으로 인식하지 않으므로 기준값으로 걸러 확인할 것</li>
+          <li>시간 컬럼이 없거나 변환되지 않으면 행 순서를 시간축으로 사용함</li>
+          <li>데이터가 많으면 그래프는 최소·최대 보존 방식으로 간략화하여 표시하고(이탈 스파이크 유지), 통계·이탈 집계는 전체 데이터 기준임</li>
+          <li>이탈 ✕ 표시는 컬럼당 최대 약 1,200개까지 그리며 초과분은 균등 추출함. 집계 수치는 전체 기준임</li>
+        </ul>
+      </details>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+if (typeof Chart === 'undefined') {
+  $('#msg').className = 'err';
+  $('#msg').textContent = '차트 라이브러리를 불러오지 못함. 네트워크 연결을 확인 후 새로고침할 것.';
+  return;
+}
+try { if (window.ChartZoom) Chart.register(window.ChartZoom); } catch (e) {}
+
+/* ------------------------------------------------------------ 상수 */
+const PAL  = ['#2f80ed','#f2994a','#27ae60','#bb6bd9','#00b8d9','#e5b800','#8d6e63','#eb5fa1','#7f8c8d','#6fcf97'];
+const DASH = [[], [7,3], [2,3]];
+const DANGER = '#e5383b';
+const MISSING = new Set(['', 'na', 'n/a', 'nan', 'null', 'none', '-', '--', 'err', 'error', '#n/a']);
+const TIME_HINT  = /time|date|timestamp|시간|시각|일시|날짜|일자/i;
+const EQUIP_HINT = /equip|eqp|machine|device|unit|tool|장비|설비|호기/i;
+const VIOL_CAP = 1200;
+
+const isMissing = v => v == null || MISSING.has(String(v).trim().toLowerCase());
+const toNum = v => {
+  if (isMissing(v)) return NaN;
+  let s = String(v).trim();
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '');
+  return Number(s);
+};
+const pad = n => String(n).padStart(2, '0');
+const fmtT = ms => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const fmtN = v => (v == null || !Number.isFinite(v)) ? '–' : Number(v.toPrecision(6)).toLocaleString('ko-KR', {maximumFractionDigits: 6});
+const fmtIn = v => (v == null || !Number.isFinite(v)) ? '' : String(Number(v.toPrecision(6)));
+const fmtDur = ms => ms < 1000 ? Math.round(ms) + 'ms' : ms < 60000 ? +(ms/1000).toFixed(2) + '초' : ms < 3600000 ? +(ms/60000).toFixed(1) + '분' : +(ms/3600000).toFixed(1) + '시간';
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const isDark = () => { const t = document.documentElement.dataset.theme; return t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches); };
+
+/* ------------------------------------------------------------ 상태 */
+const S = {
+  fileName: '', headers: [], rows: [], timeCol: null, equipCol: null,
+  numCols: [], skipped: [], selected: new Set(), equips: [], hidden: new Set(),
+  series: {}, stats: {}, limits: {}, viol: {}, charts: {}, cards: {},
+  k: 3, nValid: 0, nBad: 0, tMin: 0, tMax: 0, step: null,
+  list: { col: '', equip: '', shown: 100 }
+};
+
+/* ------------------------------------------------------------ CSV 파서 */
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const first = text.split(/\r?\n/, 1)[0];
+  let delim = ',', best = -1;
+  for (const d of [',', '\t', ';']) { const c = first.split(d).length; if (c > best) { best = c; delim = d; } }
+  let rows;
+  if (text.indexOf('"') < 0) {
+    rows = text.split(/\r?\n/).map(l => l.split(delim));
+  } else {
+    rows = []; let row = [], f = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"') { if (text[i+1] === '"') { f += '"'; i++; } else q = false; }
+        else f += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === delim) { row.push(f); f = ''; }
+      else if (ch === '\n') { row.push(f); rows.push(row); row = []; f = ''; }
+      else if (ch !== '\r') f += ch;
+    }
+    if (f !== '' || row.length) { row.push(f); rows.push(row); }
+  }
+  return rows.filter(r => !(r.length === 1 && r[0].trim() === ''));
+}
+async function decodeFile(file) {
+  const buf = await file.arrayBuffer();
+  try { return new TextDecoder('utf-8', {fatal: true}).decode(buf); }
+  catch (e) { return new TextDecoder('euc-kr').decode(buf); }
+}
+
+/* ------------------------------------------------------------ 시간 파서 */
+function parseTime(v) {
+  if (v == null) return NaN;
+  const s = String(v).trim();
+  if (!s) return NaN;
+  if (/^\d{9,}(\.\d+)?$/.test(s)) { const n = +s; return n > 1e11 ? n : n * 1000; }
+  const m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?)?$/);
+  if (m) {
+    const ms = m[7] ? Math.round(+('0.' + m[7]) * 1000) : 0;
+    return new Date(+m[1], +m[2]-1, +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0), ms).getTime();
+  }
+  if (s.length >= 8 && /\d{4}/.test(s)) { const t = Date.parse(s); return isNaN(t) ? NaN : t; }
+  return NaN;
+}
+function timeRate(ci, rows) {
+  const stride = Math.max(1, Math.floor(rows.length / 300));
+  let nn = 0, ok = 0;
+  for (let r = 0; r < rows.length; r += stride) {
+    const v = rows[r][ci]; if (isMissing(v)) continue;
+    nn++; if (Number.isFinite(parseTime(v))) ok++;
+  }
+  return nn ? ok / nn : 0;
+}
+function detectTime(headers, rows) {
+  const idx = headers.map((_, i) => i);
+  const order = [...idx.filter(i => TIME_HINT.test(headers[i])), ...idx.filter(i => !TIME_HINT.test(headers[i]))];
+  for (const i of order) if (timeRate(i, rows) >= 0.9) return headers[i];
+  return null;
+}
+function detectEquip(headers) {
+  return headers.find(h => EQUIP_HINT.test(h)) || null;
+}
+
+/* ------------------------------------------------------------ 데이터 처리 */
+function loadGrid(headers, rows, name) {
+  const seen = {};
+  S.headers = headers.map((h, i) => {
+    let n = h.trim() || `col${i+1}`;
+    if (seen[n]) { seen[n]++; n = `${n}_${seen[n]}`; } else seen[n] = 1;
+    return n;
+  });
+  S.rows = rows;
+  S.fileName = name;
+  S.timeCol = detectTime(S.headers, rows);
+  S.equipCol = detectEquip(S.headers);
+  S.hidden = new Set();
+  processData();
+  $('#app').hidden = false;
+  renderAll();
+}
+
+function processData() {
+  const { headers, rows } = S;
+  const ti = S.timeCol ? headers.indexOf(S.timeCol) : -1;
+  const ei = S.equipCol ? headers.indexOf(S.equipCol) : -1;
+
+  // 숫자형 컬럼 판별 (전체 행에서 균등 표본)
+  S.numCols = []; S.skipped = [];
+  const stride = Math.max(1, Math.floor(rows.length / 3000));
+  headers.forEach((h, ci) => {
+    if (ci === ti || ci === ei) return;
+    let nn = 0, nnum = 0;
+    for (let r = 0; r < rows.length; r += stride) {
+      const v = rows[r][ci]; if (isMissing(v)) continue;
+      nn++; if (Number.isFinite(toNum(v))) nnum++;
+    }
+    if (nn > 0 && nnum / nn >= 0.9) S.numCols.push(h); else S.skipped.push(h);
+  });
+
+  // 장비별 그룹
+  const groups = new Map(); let bad = 0;
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    const t = ti >= 0 ? parseTime(row[ti]) : r + 1;
+    if (!Number.isFinite(t)) { bad++; continue; }
+    const e = ei >= 0 ? (String(row[ei] ?? '').trim() || '(빈값)') : '전체';
+    let g = groups.get(e); if (!g) { g = { t: [], r: [] }; groups.set(e, g); }
+    g.t.push(t); g.r.push(r);
+  }
+  S.nBad = bad; S.nValid = rows.length - bad;
+  S.equips = [...groups.keys()].sort((a, b) => a.localeCompare(b, 'ko', { numeric: true }));
+  S.hidden = new Set([...S.hidden].filter(e => S.equips.includes(e)));
+
+  S.series = {}; S.stats = {};
+  S.numCols.forEach(c => { S.series[c] = {}; });
+  const cidx = S.numCols.map(c => headers.indexOf(c));
+  let tMin = Infinity, tMax = -Infinity, step = null, bigN = -1;
+  S.equips.forEach(e => {
+    const g = groups.get(e);
+    const order = g.t.map((_, i) => i);
+    let sorted = true;
+    for (let i = 1; i < g.t.length; i++) if (g.t[i] < g.t[i-1]) { sorted = false; break; }
+    if (!sorted) order.sort((a, b) => g.t[a] - g.t[b]);
+    if (order.length) {
+      tMin = Math.min(tMin, g.t[order[0]]); tMax = Math.max(tMax, g.t[order[order.length-1]]);
+      if (order.length > bigN) {
+        bigN = order.length;
+        const d = []; const lim = Math.min(order.length, 5001);
+        for (let i = 1; i < lim; i++) { const dt = g.t[order[i]] - g.t[order[i-1]]; if (dt > 0) d.push(dt); }
+        d.sort((a, b) => a - b); step = d.length ? d[Math.floor(d.length / 2)] : null;
+      }
+    }
+    S.numCols.forEach((c, k) => {
+      const ci = cidx[k], pts = []; let miss = 0;
+      for (const o of order) {
+        const v = toNum(rows[g.r[o]][ci]);
+        if (Number.isFinite(v)) pts.push({ x: g.t[o], y: v }); else miss++;
+      }
+      S.series[c][e] = { pts, miss, n: order.length };
+    });
+  });
+  S.tMin = tMin; S.tMax = tMax; S.step = step;
+
+  // 통계
+  S.numCols.forEach(c => {
+    const agg = a => ({ n: a.n, miss: a.miss, mean: a.n ? a.mean : NaN, std: a.n > 1 ? Math.sqrt(a.m2 / (a.n - 1)) : NaN, min: a.min, max: a.max });
+    const all = { n: 0, miss: 0, mean: 0, m2: 0, min: Infinity, max: -Infinity };
+    const per = {};
+    S.equips.forEach(e => {
+      const s = S.series[c][e], a = { n: 0, miss: s.miss, mean: 0, m2: 0, min: Infinity, max: -Infinity };
+      for (const p of s.pts) {
+        const y = p.y;
+        a.n++; const d = y - a.mean; a.mean += d / a.n; a.m2 += d * (y - a.mean);
+        if (y < a.min) a.min = y; if (y > a.max) a.max = y;
+        all.n++; const d2 = y - all.mean; all.mean += d2 / all.n; all.m2 += d2 * (y - all.mean);
+        if (y < all.min) all.min = y; if (y > all.max) all.max = y;
+      }
+      all.miss += s.miss;
+      per[e] = agg(a);
+    });
+    S.stats[c] = { ...agg(all), per };
+  });
+
+  S.selected = new Set(S.numCols);
+  S.limits = {}; S.viol = {};
+  S.numCols.forEach(c => { S.limits[c] = autoLimit(c); computeViol(c); });
+  S.list = { col: '', equip: '', shown: 100 };
+}
+
+function autoLimit(c) {
+  const st = S.stats[c];
+  if (!st.n || !Number.isFinite(st.std)) return { lo: null, hi: null, mode: 'auto' };
+  return { lo: st.mean - S.k * st.std, hi: st.mean + S.k * st.std, mode: 'auto' };
+}
+function computeViol(c) {
+  const { lo, hi } = S.limits[c];
+  const per = {}; let total = 0, nValid = 0;
+  S.equips.forEach(e => {
+    const pts = S.series[c][e].pts, out = [];
+    for (const p of pts) if ((lo != null && p.y < lo) || (hi != null && p.y > hi)) out.push(p);
+    per[e] = { count: out.length, n: pts.length, pts: out };
+    total += out.length; nValid += pts.length;
+  });
+  S.viol[c] = { per, total, nValid };
+}
+
+/* ------------------------------------------------------------ 색상 */
+const eqColor = i => PAL[i % PAL.length];
+const colIdx = c => S.numCols.indexOf(c);
+const colColor = c => `hsl(${(colIdx(c) * 57 + 208) % 360} ${isDark() ? 68 : 62}% ${isDark() ? 66 : 42}%)`;
+function themeColors() {
+  const cs = getComputedStyle(document.documentElement), g = n => cs.getPropertyValue(n).trim();
+  return { text: g('--text'), muted: g('--muted'), grid: g('--grid') };
+}
+
+/* ------------------------------------------------------------ 렌더: 개요/설정 */
+function selCols() { return S.numCols.filter(c => S.selected.has(c)); }
+function totalViol() { return selCols().reduce((a, c) => a + S.viol[c].total, 0); }
+
+function renderOverview() {
+  const items = [
+    ['파일', S.fileName],
+    ['행 수', `${S.rows.length.toLocaleString('ko-KR')}` + (S.nBad ? ` (시간 오류 ${S.nBad.toLocaleString('ko-KR')} 제외)` : '')],
+    ['장비 수', `${S.equips.length}대`],
+    ['분석 컬럼', `${S.numCols.length}개`],
+    ['기간', S.timeCol && Number.isFinite(S.tMin) ? `${fmtT(S.tMin)} ~ ${fmtT(S.tMax)}` : '행 순서 사용'],
+    ['샘플링 간격(중앙값)', S.timeCol && S.step ? fmtDur(S.step) : '–'],
+  ];
+  let h = items.map(([k, v]) => `<div class="kpi"><small>${esc(k)}</small><strong>${esc(v)}</strong></div>`).join('');
+  h += `<div class="kpi ${totalViol() ? 'warn' : ''}"><small>기준값 이탈 합계</small><strong>${totalViol().toLocaleString('ko-KR')}건</strong></div>`;
+  $('#overview').innerHTML = h;
+}
+
+function renderConfig() {
+  const opt = (v, t, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(t)}</option>`;
+  $('#selTime').innerHTML = opt('', '(행 순서 사용)', !S.timeCol) + S.headers.map(h => opt(h, h, h === S.timeCol)).join('');
+  $('#selEquip').innerHTML = opt('', '(없음 · 단일 그룹)', !S.equipCol) + S.headers.map(h => opt(h, h, h === S.equipCol)).join('');
+  $('#inK').value = S.k;
+  $('#colChips').innerHTML = S.numCols.map(c =>
+    `<label class="chip ${S.selected.has(c) ? '' : 'off'}" style="--col:${colColor(c)}"><input type="checkbox" data-col="${esc(c)}" ${S.selected.has(c) ? 'checked' : ''}><span class="sw"></span>${esc(c)}</label>`
+  ).join('') || '<span class="empty">숫자형 컬럼이 없음. 시간/장비 컬럼 선택을 확인할 것.</span>';
+  $('#skipped').textContent = S.skipped.length ? `분석 제외(숫자형 아님/전부 결측): ${S.skipped.join(', ')}` : '';
+}
+
+function renderLimits() {
+  const cols = selCols();
+  if (!cols.length) { $('#limTable').innerHTML = ''; return; }
+  let h = '<thead><tr><th>컬럼</th><th>평균</th><th>σ</th><th>하한</th><th>상한</th><th>구분</th><th></th></tr></thead><tbody>';
+  cols.forEach(c => {
+    const st = S.stats[c], L = S.limits[c];
+    h += `<tr data-col="${esc(c)}"><td class="name" style="--col:${colColor(c)}"><span class="sw"></span>${esc(c)}</td>
+      <td>${fmtN(st.mean)}</td><td>${fmtN(st.std)}</td>
+      <td><input type="number" step="any" data-side="lo" value="${fmtIn(L.lo)}" aria-label="${esc(c)} 하한"></td>
+      <td><input type="number" step="any" data-side="hi" value="${fmtIn(L.hi)}" aria-label="${esc(c)} 상한"></td>
+      <td><span class="badge ${L.mode === 'manual' ? 'manual' : ''}">${L.mode === 'manual' ? '수동' : '자동'}</span></td>
+      <td><button type="button" data-reset="${esc(c)}">자동</button></td></tr>`;
+  });
+  $('#limTable').innerHTML = h + '</tbody>';
+}
+
+/* ------------------------------------------------------------ 렌더: 차트 */
+function sample(arr, cap) {
+  if (arr.length <= cap) return arr;
+  const out = [], step = arr.length / cap;
+  for (let i = 0; i < cap; i++) out.push(arr[Math.floor(i * step)]);
+  return out;
+}
+function yRange(c) {
+  const st = S.stats[c], { lo, hi } = S.limits[c];
+  let mn = st.min, mx = st.max;
+  if (lo != null) mn = Math.min(mn, lo);
+  if (hi != null) mx = Math.max(mx, hi);
+  if (!Number.isFinite(mn) || !Number.isFinite(mx)) return {};
+  let p = (mx - mn) * 0.06; if (p === 0) p = Math.abs(mx) * 0.05 || 1;
+  return { min: mn - p, max: mx + p };
+}
+
+const bandsPlugin = {
+  id: 'thresholdBands',
+  beforeDatasetsDraw(chart, args, o) {
+    const a = chart.chartArea, y = chart.scales.y; if (!a || !y) return;
+    const ctx = chart.ctx; ctx.save();
+    ctx.beginPath(); ctx.rect(a.left, a.top, a.width, a.height); ctx.clip();
+    ctx.fillStyle = 'rgba(229,56,59,0.10)';
+    if (o.hi != null) { const p = y.getPixelForValue(o.hi); if (p > a.top) ctx.fillRect(a.left, a.top, a.width, Math.min(p, a.bottom) - a.top); }
+    if (o.lo != null) { const p = y.getPixelForValue(o.lo); if (p < a.bottom) { const t = Math.max(p, a.top); ctx.fillRect(a.left, t, a.width, a.bottom - t); } }
+    ctx.restore();
+  },
+  afterDatasetsDraw(chart, args, o) {
+    const a = chart.chartArea, y = chart.scales.y; if (!a || !y) return;
+    const ctx = chart.ctx; ctx.save();
+    ctx.beginPath(); ctx.rect(a.left, a.top - 14, a.width, a.height + 28); ctx.clip();
+    ctx.setLineDash([6, 4]); ctx.lineWidth = 1.2; ctx.strokeStyle = DANGER; ctx.fillStyle = DANGER;
+    ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+    [['상한', o.hi, -3], ['하한', o.lo, 12]].forEach(([nm, v, dy]) => {
+      if (v == null) return;
+      const p = y.getPixelForValue(v); if (p < a.top - 1 || p > a.bottom + 1) return;
+      ctx.beginPath(); ctx.moveTo(a.left, p); ctx.lineTo(a.right, p); ctx.stroke();
+      ctx.setLineDash([]); ctx.fillText(`${nm} ${fmtN(v)}`, a.right - 4, p + dy); ctx.setLineDash([6, 4]);
+    });
+    ctx.restore();
+  }
+};
+
+let syncing = false;
+function syncZoom({ chart }) {
+  if (syncing) return; syncing = true;
+  const { min, max } = chart.scales.x;
+  Object.values(S.charts).forEach(ch => {
+    if (ch === chart) return;
+    ch.options.scales.x.min = min; ch.options.scales.x.max = max; ch.update('none');
+  });
+  syncing = false;
+}
+
+function makeChart(c, canvas, T) {
+  const E = S.equips.length, cap = Math.max(100, Math.floor(VIOL_CAP / Math.max(E, 1)));
+  const small = S.stats[c].n <= 300, L = S.limits[c], color = colColor(c);
+  const ds = S.equips.map((e, i) => ({
+    label: e, data: S.series[c][e].pts, borderColor: eqColor(i), backgroundColor: eqColor(i),
+    borderDash: DASH[Math.floor(i / PAL.length) % 3], borderWidth: 1.4,
+    pointRadius: small ? 2.5 : 0, pointHoverRadius: 4, tension: 0, spanGaps: true,
+    hidden: S.hidden.has(e), order: 2
+  }));
+  S.equips.forEach((e, i) => ds.push({
+    type: 'scatter', label: `${e} · 이탈`, data: sample(S.viol[c].per[e].pts, cap),
+    pointStyle: 'crossRot', pointRadius: 6, pointHoverRadius: 8, pointBorderWidth: 2,
+    pointBorderColor: DANGER, backgroundColor: DANGER, borderColor: DANGER,
+    hidden: S.hidden.has(e), order: 1
+  }));
+  const xs = S.timeCol
+    ? { type: 'time', time: { displayFormats: { millisecond: 'HH:mm:ss.SSS', second: 'HH:mm:ss', minute: 'HH:mm', hour: 'MM-dd HH:mm', day: 'MM-dd', week: 'MM-dd', month: 'yyyy-MM', quarter: 'yyyy-MM', year: 'yyyy' } },
+        ticks: { color: T.muted, maxRotation: 0, autoSkip: true }, grid: { color: T.grid } }
+    : { type: 'linear', title: { display: true, text: '행 순서', color: T.muted }, ticks: { color: T.muted }, grid: { color: T.grid } };
+  return new Chart(canvas, {
+    type: 'line', data: { datasets: ds }, plugins: [bandsPlugin],
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      scales: {
+        x: xs,
+        y: { ...yRange(c), title: { display: true, text: c, color, font: { weight: '600' } }, ticks: { color: T.muted }, grid: { color: T.grid } }
+      },
+      plugins: {
+        legend: { display: false },
+        decimation: { enabled: true, algorithm: 'min-max' },
+        thresholdBands: { lo: L.lo, hi: L.hi },
+        tooltip: {
+          callbacks: {
+            title: items => items.length ? (S.timeCol ? fmtT(items[0].parsed.x) : `행 ${items[0].parsed.x}`) : '',
+            label: ctx => `${ctx.dataset.label}: ${fmtN(ctx.parsed.y)}`
+          }
+        },
+        zoom: {
+          limits: { x: { min: 'original', max: 'original' } },
+          zoom: { drag: { enabled: true, backgroundColor: 'rgba(47,128,237,0.15)', borderColor: '#2f80ed', borderWidth: 1 },
+                  wheel: { enabled: true, modifierKey: 'ctrl' }, pinch: { enabled: true }, mode: 'x', onZoomComplete: syncZoom },
+          pan: { enabled: true, mode: 'x', modifierKey: 'shift', onPanComplete: syncZoom }
+        }
+      }
+    }
+  });
+}
+
+function destroyCharts() { Object.values(S.charts).forEach(ch => ch.destroy()); S.charts = {}; S.cards = {}; }
+
+function renderCharts() {
+  destroyCharts();
+  const box = $('#charts'); box.innerHTML = '';
+  const cols = selCols();
+  if (!cols.length) { box.innerHTML = '<p class="empty">표시할 컬럼을 선택할 것.</p>'; return; }
+  const T = themeColors();
+  cols.forEach(c => {
+    const card = document.createElement('article');
+    card.className = 'chartcard'; card.style.setProperty('--col', colColor(c));
+    card.innerHTML = `<header><h3><span class="sw"></span>${esc(c)}</h3><div class="meta"></div></header><div class="cwrap"><canvas></canvas></div>`;
+    box.appendChild(card); S.cards[c] = card;
+    S.charts[c] = makeChart(c, card.querySelector('canvas'), T);
+    updateMeta(c);
+  });
+}
+
+function updateMeta(c) {
+  const card = S.cards[c]; if (!card) return;
+  const { lo, hi } = S.limits[c], v = S.viol[c];
+  const rate = v.nValid ? (v.total / v.nValid * 100) : 0;
+  card.querySelector('.meta').innerHTML =
+    `하한 ${fmtN(lo)} / 상한 ${fmtN(hi)} · 이탈 <b>${v.total.toLocaleString('ko-KR')}건</b> (${rate.toFixed(2)}%)` +
+    (v.total > VIOL_CAP ? ` · ✕ 표시는 일부 추출` : '');
+}
+
+function refreshChart(c) {
+  const ch = S.charts[c]; if (!ch) return;
+  const E = S.equips.length, cap = Math.max(100, Math.floor(VIOL_CAP / Math.max(E, 1)));
+  S.equips.forEach((e, i) => { ch.data.datasets[E + i].data = sample(S.viol[c].per[e].pts, cap); });
+  const yr = yRange(c); ch.options.scales.y.min = yr.min; ch.options.scales.y.max = yr.max;
+  ch.options.plugins.thresholdBands.lo = S.limits[c].lo;
+  ch.options.plugins.thresholdBands.hi = S.limits[c].hi;
+  ch.update('none'); updateMeta(c);
+}
+
+function renderLegend() {
+  const cols = selCols();
+  let h = S.equips.map((e, i) => {
+    const n = cols.reduce((a, c) => a + S.viol[c].per[e].count, 0);
+    return `<span class="chip ${S.hidden.has(e) ? 'off' : ''}" role="button" tabindex="0" data-eq="${esc(e)}" style="color:${eqColor(i)}"><span class="ln" style="${DASH[Math.floor(i / PAL.length) % 3].length ? 'border-top-style:dashed' : ''}"></span><span style="color:var(--text)">${esc(e)}</span><small style="color:var(--muted)">이탈 ${n.toLocaleString('ko-KR')}</small></span>`;
+  }).join('');
+  h += `<span class="chip static"><span class="x">✕</span>기준값 이탈</span>`;
+  $('#legend').innerHTML = h;
+}
+
+function toggleEquip(e) {
+  if (S.hidden.has(e)) S.hidden.delete(e); else S.hidden.add(e);
+  const i = S.equips.indexOf(e), E = S.equips.length, vis = !S.hidden.has(e);
+  Object.values(S.charts).forEach(ch => { ch.setDatasetVisibility(i, vis); ch.setDatasetVisibility(E + i, vis); ch.update('none'); });
+  renderLegend();
+}
+
+/* ------------------------------------------------------------ 렌더: 표 */
+function renderStats() {
+  const cols = selCols();
+  let h = '<thead><tr><th>컬럼</th><th>유효</th><th>결측</th><th>결측률</th><th>평균</th><th>σ</th><th>최소</th><th>최대</th></tr></thead><tbody>';
+  cols.forEach(c => {
+    const s = S.stats[c], tot = s.n + s.miss;
+    h += `<tr><td class="name" style="--col:${colColor(c)}"><span class="sw"></span>${esc(c)}</td><td>${s.n.toLocaleString('ko-KR')}</td><td>${s.miss.toLocaleString('ko-KR')}</td><td>${tot ? (s.miss / tot * 100).toFixed(2) : '0.00'}%</td><td>${fmtN(s.mean)}</td><td>${fmtN(s.std)}</td><td>${fmtN(s.min)}</td><td>${fmtN(s.max)}</td></tr>`;
+  });
+  $('#statTable').innerHTML = h + '</tbody>';
+}
+
+function renderMatrix() {
+  const cols = selCols();
+  let h = '<thead><tr><th>컬럼</th>' + S.equips.map(e => `<th>${esc(e)}</th>`).join('') + '<th>합계</th></tr></thead><tbody>';
+  cols.forEach(c => {
+    const v = S.viol[c];
+    h += `<tr><td class="name" style="--col:${colColor(c)}"><span class="sw"></span>${esc(c)}</td>`;
+    S.equips.forEach(e => {
+      const p = v.per[e], rate = p.n ? p.count / p.n * 100 : 0, a = Math.min(45, rate * 4);
+      h += `<td style="background:color-mix(in srgb,var(--danger) ${a}%,transparent)">${p.count.toLocaleString('ko-KR')} <small style="color:var(--muted)">(${rate.toFixed(2)}%)</small></td>`;
+    });
+    const tr = v.nValid ? v.total / v.nValid * 100 : 0;
+    h += `<td><b>${v.total.toLocaleString('ko-KR')}</b> <small style="color:var(--muted)">(${tr.toFixed(2)}%)</small></td></tr>`;
+  });
+  $('#matrix').innerHTML = h + '</tbody>';
+}
+
+function renderListFilters() {
+  const cols = selCols();
+  if (S.list.col && !cols.includes(S.list.col)) S.list.col = '';
+  $('#fCol').innerHTML = `<option value="">전체</option>` + cols.map(c => `<option value="${esc(c)}"${c === S.list.col ? ' selected' : ''}>${esc(c)}</option>`).join('');
+  $('#fEquip').innerHTML = `<option value="">전체</option>` + S.equips.map(e => `<option value="${esc(e)}"${e === S.list.equip ? ' selected' : ''}>${esc(e)}</option>`).join('');
+}
+function renderList() {
+  const cols = S.list.col ? [S.list.col] : selCols();
+  const eqs = S.list.equip ? [S.list.equip] : S.equips;
+  const all = [];
+  cols.forEach(c => eqs.forEach(e => { const L = S.limits[c]; for (const p of S.viol[c].per[e].pts) all.push({ x: p.x, e, c, y: p.y, lo: L.lo, hi: L.hi }); }));
+  all.sort((a, b) => a.x - b.x);
+  const show = all.slice(0, S.list.shown);
+  let h = '<thead><tr><th>시각</th><th>장비</th><th>컬럼</th><th>값</th><th>구분</th><th>기준 대비 편차</th></tr></thead><tbody>';
+  show.forEach(r => {
+    const low = r.lo != null && r.y < r.lo, ref = low ? r.lo : r.hi;
+    h += `<tr><td>${S.timeCol ? fmtT(r.x) : '행 ' + r.x}</td><td>${esc(r.e)}</td><td>${esc(r.c)}</td><td>${fmtN(r.y)}</td><td class="${low ? 'pill-low' : 'pill-high'}">${low ? '하한 미달' : '상한 초과'}</td><td>${fmtN(r.y - ref)}</td></tr>`;
+  });
+  if (!show.length) h += '<tr><td colspan="6" style="text-align:center;color:var(--muted)">이탈 없음</td></tr>';
+  $('#vlist').innerHTML = h + '</tbody>';
+  $('#vinfo').textContent = `${show.length.toLocaleString('ko-KR')} / ${all.length.toLocaleString('ko-KR')}건 표시 (시간순)`;
+  $('#btnMore').hidden = show.length >= all.length;
+}
+
+function renderDerived() { renderOverview(); renderLegend(); renderMatrix(); renderList(); }
+function renderAll() {
+  renderOverview(); renderConfig(); renderLimits(); renderCharts(); renderLegend();
+  renderStats(); renderMatrix(); renderListFilters(); renderList();
+}
+
+/* ------------------------------------------------------------ 이벤트 */
+function setMsg(t, kind) { const m = $('#msg'); m.textContent = t; m.className = kind || ''; }
+
+async function loadFile(file) {
+  setMsg('불러오는 중…');
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const text = await decodeFile(file);
+    const grid = parseCSV(text);
+    if (grid.length < 2) throw new Error('데이터 행이 없음 (헤더 포함 2행 이상 필요)');
+    loadGrid(grid[0], grid.slice(1), file.name);
+    setMsg(`불러오기 완료: ${S.rows.length.toLocaleString('ko-KR')}행 · 장비 ${S.equips.length}대 · 분석 컬럼 ${S.numCols.length}개`, 'ok');
+    if (!S.numCols.length) setMsg('숫자형 컬럼을 찾지 못함. 시간/장비 컬럼 지정을 확인할 것.', 'err');
+  } catch (err) { setMsg('불러오기 실패: ' + err.message, 'err'); }
+}
+
+$('#file').addEventListener('change', e => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ''; });
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+
+$('#btnSample').addEventListener('click', () => {
+  const g = sampleData();
+  loadGrid(g.headers, g.rows, '샘플 데이터 (가상)');
+  setMsg('샘플 데이터(가상)를 불러옴. 실제 분석은 CSV를 업로드할 것.', 'ok');
+});
+
+$('#selTime').addEventListener('change', e => { S.timeCol = e.target.value || null; processData(); renderAll(); });
+$('#selEquip').addEventListener('change', e => { S.equipCol = e.target.value || null; processData(); renderAll(); });
+
+$('#inK').addEventListener('input', debounce(e => {
+  const k = parseFloat(e.target.value); if (!(k > 0)) return;
+  S.k = k;
+  S.numCols.forEach(c => { if (S.limits[c].mode === 'auto') { S.limits[c] = autoLimit(c); computeViol(c); } });
+  renderLimits(); selCols().forEach(refreshChart); renderDerived();
+}, 300));
+$('#btnAuto').addEventListener('click', () => {
+  S.numCols.forEach(c => { S.limits[c] = autoLimit(c); computeViol(c); });
+  renderLimits(); selCols().forEach(refreshChart); renderDerived();
+});
+
+$('#colChips').addEventListener('change', e => {
+  const c = e.target.dataset.col; if (c == null) return;
+  if (e.target.checked) S.selected.add(c); else S.selected.delete(c);
+  e.target.closest('.chip').classList.toggle('off', !e.target.checked);
+  renderLimits(); renderCharts(); renderLegend(); renderStats(); renderMatrix(); renderListFilters(); renderList(); renderOverview();
+});
+
+const onLimitInput = debounce(input => {
+  const tr = input.closest('tr'), c = tr.dataset.col;
+  const val = s => { const n = parseFloat(s); return Number.isFinite(n) ? n : null; };
+  const lo = val(tr.querySelector('[data-side=lo]').value), hi = val(tr.querySelector('[data-side=hi]').value);
+  S.limits[c] = { lo, hi, mode: 'manual' };
+  const b = tr.querySelector('.badge'); b.textContent = '수동'; b.classList.add('manual');
+  computeViol(c); refreshChart(c); renderDerived();
+}, 300);
+$('#limTable').addEventListener('input', e => { if (e.target.matches('input[data-side]')) onLimitInput(e.target); });
+$('#limTable').addEventListener('click', e => {
+  const c = e.target.dataset.reset; if (c == null) return;
+  S.limits[c] = autoLimit(c); computeViol(c); renderLimits(); refreshChart(c); renderDerived();
+});
+
+$('#legend').addEventListener('click', e => { const el = e.target.closest('[data-eq]'); if (el) toggleEquip(el.dataset.eq); });
+$('#legend').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = e.target.closest('[data-eq]'); if (el) { e.preventDefault(); toggleEquip(el.dataset.eq); }
+});
+$('#btnReset').addEventListener('click', () => {
+  Object.values(S.charts).forEach(ch => { ch.options.scales.x.min = undefined; ch.options.scales.x.max = undefined; ch.resetZoom(); });
+});
+
+$('#fCol').addEventListener('change', e => { S.list.col = e.target.value; S.list.shown = 100; renderList(); });
+$('#fEquip').addEventListener('change', e => { S.list.equip = e.target.value; S.list.shown = 100; renderList(); });
+$('#btnMore').addEventListener('click', () => { S.list.shown += 200; renderList(); });
+
+/* 테마 변경 시 차트 재생성 */
+const rethemed = () => { if (S.numCols.length && !$('#app').hidden) { renderConfig(); renderLimits(); renderCharts(); renderStats(); renderMatrix(); } };
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', rethemed);
+new MutationObserver(rethemed).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+
+/* ------------------------------------------------------------ 샘플 데이터 */
+function sampleData() {
+  let a = 20261029;
+  const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const gauss = () => { let u = 0, v = 0; while (!u) u = rnd(); while (!v) v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const headers = ['timestamp', 'equip_id', 'pressure_bar', 'flow_Lpm', 'temp_C', 'DO_ppm'];
+  const rows = [], t0 = new Date(2026, 9, 29, 8, 0, 0).getTime(), N = 720;
+  const mk = v => rnd() < 0.015 ? '' : v.toFixed(3);
+  for (let i = 0; i < N; i++) {
+    const ts = fmtT(t0 + i * 10000);
+    ['NB-01', 'NB-02', 'NB-03'].forEach((e, ei) => {
+      let p = 3 + 0.07 * gauss() + (ei === 1 && i > 450 ? (i - 450) * 0.0012 : 0) + (rnd() < 0.004 ? (rnd() < 0.5 ? -0.4 : 0.4) : 0);
+      let f = 50 + 1.2 * gauss() - (ei === 2 && i > 300 && i < 360 ? 9 : 0);
+      let tc = 25 + 0.5 * gauss() + (ei === 0 ? i * 0.004 : 0);
+      let d = 8 + 0.2 * gauss() - (ei === 1 ? 0.15 : 0);
+      rows.push([ts, e, mk(p), mk(f), mk(tc), mk(d)]);
+    });
+  }
+  return { headers, rows };
+}
+})();
+</script>
+</body>
+</html>
